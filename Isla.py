@@ -185,17 +185,17 @@ if app_module == "Dashboard":
         with col1:
             if st.button("📋 New Contract"):
                 st.session_state.current_module = "Smart Contracts"
-                st.experimental_rerun()
+                st.rerun()
         
         with col2:
             if st.button("💰 Calculate Zakat"):
                 st.session_state.current_module = "Zakat Management"
-                st.experimental_rerun()
+                st.rerun()
         
         with col3:
             if st.button("📚 Learn More"):
                 st.session_state.current_module = "Education & Advisory"
-                st.experimental_rerun()
+                st.rerun()
 
 # AI Sharia Compliance Engine Module
 elif app_module == "AI Sharia Compliance":
@@ -555,7 +555,7 @@ elif app_module == "Halal Investments":
         or rental income from the underlying asset.
         """)
         
-        # Sample Sukuk offerings
+        # Sample Sukuk offerings - FIXED THE SYNTAX ERROR HERE
         sukuk_offerings = [
             {
                 "name": "Kenya Government Ijarah Sukuk",
@@ -566,7 +566,7 @@ elif app_module == "Halal Investments":
                 "rating": "AAA"
             },
             {
-                "name": East African Community Infrastructure Sukuk",
+                "name": "East African Community Infrastructure Sukuk",  # Fixed the unterminated string
                 "issue_date": "2023-10-15",
                 "maturity": "2030-10-15",
                 "yield": 9.2,
