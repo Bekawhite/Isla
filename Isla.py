@@ -1,908 +1,982 @@
-import streamlit as st
+import os
 import pandas as pd
 import numpy as np
-import plotly.graph_objects as go
-import plotly.express as px
-from datetime import datetime, timedelta
-import json
+from concurrent.futures import ThreadPoolExecutor
+import warnings
 import time
+from typing import Optional, List, Dict, Tuple
+import gc
+warnings.filterwarnings('ignore')
 
-# Configure the page
-st.set_page_config(
-    page_title="Baraka FinTech",
-    page_icon="🌙",
-    layout="wide",
-    initial_sidebar_state="expanded"
-)
+# Try multiple PDF libraries for robustness
+try:
+    import pdfplumber
+    PDFPLUMBER_AVAILABLE = True
+except ImportError:
+    PDFPLUMBER_AVAILABLE = False
+    print("pdfplumber not installed, using alternative methods")
 
-# Custom CSS for styling
-st.markdown("""
-<style>
-    .main-header {
-        font-size: 3rem;
-        color: #1E3A8A;
-        text-align: center;
-        margin-bottom: 1rem;
-    }
-    .sub-header {
-        font-size: 1.5rem;
-        color: #2563EB;
-        margin-top: 1.5rem;
-        margin-bottom: 1rem;
-    }
-    .module-card {
-        background-color: #F0F9FF;
-        border-radius: 10px;
-        padding: 1.5rem;
-        margin-bottom: 1.5rem;
-        border-left: 5px solid #2563EB;
-    }
-    .metric-card {
-        background-color: #EFF6FF;
-        border-radius: 8px;
-        padding: 1rem;
-        text-align: center;
-        margin: 0.5rem;
-    }
-    .success-box {
-        background-color: #D1FAE5;
-        border-radius: 8px;
-        padding: 1rem;
-        margin: 1rem 0;
-    }
-    .warning-box {
-        background-color: #FEF3C7;
-        border-radius: 8px;
-        padding: 1rem;
-        margin: 1rem 0;
-    }
-    .islamic-green {
-        color: #059669;
-    }
-</style>
-""", unsafe_allow_html=True)
+try:
+    import camelot
+    CAMELOT_AVAILABLE = True
+except ImportError:
+    CAMELOT_AVAILABLE = False
+    print("camelot not installed, using alternative methods")
 
-# Initialize session state for user data
-if 'user_data' not in st.session_state:
-    st.session_state.user_data = {
-        'name': 'Ahmed Hassan',
-        'savings': 150000,
-        'investments': 75000,
-        'zakat_paid': 3750,
-        'compliance_score': 92,
-        'last_login': datetime.now().strftime("%Y-%m-%d")
-    }
+try:
+    from tabula import read_pdf
+    TABULA_AVAILABLE = True
+except ImportError:
+    TABULA_AVAILABLE = False
+    print("tabula not installed, using alternative methods")
 
-if 'transactions' not in st.session_state:
-    st.session_state.transactions = [
-        {'date': '2023-10-01', 'type': 'Murabaha', 'amount': 50000, 'status': 'Completed'},
-        {'date': '2023-10-05', 'type': 'Ijara', 'amount': 25000, 'status': 'Pending'},
-        {'date': '2023-10-10', 'type': 'Musharakah', 'amount': 100000, 'status': 'Completed'},
-    ]
-
-if 'investments' not in st.session_state:
-    st.session_state.investments = [
-        {'name': 'Sukuk Al-Ijarah', 'amount': 30000, 'return': 8.5, 'maturity': '2024-06-15'},
-        {'name': 'Halal Equity Fund', 'amount': 25000, 'return': 12.2, 'maturity': '2025-01-20'},
-        {'name': 'Islamic Real Estate Fund', 'amount': 20000, 'return': 7.8, 'maturity': '2024-09-30'},
-    ]
-
-# App Header
-st.markdown('<h1 class="main-header">🌙 Baraka FinTech</h1>', unsafe_allow_html=True)
-st.markdown('<h3 style="text-align: center; color: #4B5563;">Islamic Banking Compliance & Empowerment Platform</h3>', unsafe_allow_html=True)
-
-# Sidebar for navigation
-st.sidebar.image("https://cdn-icons-png.flaticon.com/512/2103/2103633.png", width=100)
-st.sidebar.title("Navigation")
-app_module = st.sidebar.selectbox(
-    "Select Module",
-    ["Dashboard", "AI Sharia Compliance", "Smart Contracts", "Halal Investments", "Zakat Management", "Education & Advisory"]
-)
-
-st.sidebar.markdown("---")
-st.sidebar.markdown("### User Profile")
-st.sidebar.write(f"**Name:** {st.session_state.user_data['name']}")
-st.sidebar.write(f"**Compliance Score:** {st.session_state.user_data['compliance_score']}%")
-st.sidebar.progress(st.session_state.user_data['compliance_score'] / 100)
-
-# Dashboard Module
-if app_module == "Dashboard":
-    st.markdown('<h2 class="sub-header">📊 Dashboard Overview</h2>', unsafe_allow_html=True)
-    
-    # Key Metrics
-    col1, col2, col3, col4 = st.columns(4)
-    
-    with col1:
-        st.markdown(f"""
-        <div class="metric-card">
-            <h3>KES {st.session_state.user_data['savings']:,}</h3>
-            <p>Total Savings</p>
-        </div>
-        """, unsafe_allow_html=True)
-    
-    with col2:
-        st.markdown(f"""
-        <div class="metric-card">
-            <h3>KES {st.session_state.user_data['investments']:,}</h3>
-            <p>Halal Investments</p>
-        </div>
-        """, unsafe_allow_html=True)
-    
-    with col3:
-        st.markdown(f"""
-        <div class="metric-card">
-            <h3>KES {st.session_state.user_data['zakat_paid']:,}</h3>
-            <p>Zakat Paid (YTD)</p>
-        </div>
-        """, unsafe_allow_html=True)
-    
-    with col4:
-        st.markdown(f"""
-        <div class="metric-card">
-            <h3>{st.session_state.user_data['compliance_score']}%</h3>
-            <p>Sharia Compliance</p>
-        </div>
-        """, unsafe_allow_html=True)
-    
-    # Charts and Visualizations
-    col1, col2 = st.columns(2)
-    
-    with col1:
-        st.markdown("#### Investment Performance")
-        
-        # Create sample data for investment performance
-        months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct']
-        sukuk_returns = [5.2, 5.5, 5.8, 6.1, 6.3, 6.5, 6.8, 7.0, 7.2, 7.5]
-        equity_returns = [8.1, 8.5, 9.2, 9.8, 10.5, 11.2, 11.8, 12.0, 12.2, 12.5]
-        real_estate_returns = [4.5, 4.8, 5.0, 5.3, 5.5, 5.8, 6.0, 6.3, 6.5, 6.8]
-        
-        fig = go.Figure()
-        fig.add_trace(go.Scatter(x=months, y=sukuk_returns, mode='lines+markers', name='Sukuk', line=dict(color='#2563EB')))
-        fig.add_trace(go.Scatter(x=months, y=equity_returns, mode='lines+markers', name='Halal Equity', line=dict(color='#059669')))
-        fig.add_trace(go.Scatter(x=months, y=real_estate_returns, mode='lines+markers', name='Real Estate', line=dict(color='#7C3AED')))
-        
-        fig.update_layout(
-            title="Investment Returns (%) Over Time",
-            xaxis_title="Month",
-            yaxis_title="Return (%)",
-            height=300
-        )
-        
-        st.plotly_chart(fig, use_container_width=True)
-    
-    with col2:
-        st.markdown("#### Recent Transactions")
-        
-        transactions_df = pd.DataFrame(st.session_state.transactions)
-        if not transactions_df.empty:
-            st.dataframe(transactions_df, use_container_width=True)
-        else:
-            st.info("No recent transactions")
-        
-        st.markdown("#### Quick Actions")
-        col1, col2, col3 = st.columns(3)
-        
-        with col1:
-            if st.button("📋 New Contract"):
-                st.session_state.current_module = "Smart Contracts"
-                st.rerun()
-        
-        with col2:
-            if st.button("💰 Calculate Zakat"):
-                st.session_state.current_module = "Zakat Management"
-                st.rerun()
-        
-        with col3:
-            if st.button("📚 Learn More"):
-                st.session_state.current_module = "Education & Advisory"
-                st.rerun()
-
-# AI Sharia Compliance Engine Module
-elif app_module == "AI Sharia Compliance":
-    st.markdown('<h2 class="sub-header">🧠 AI Sharia Compliance Engine</h2>', unsafe_allow_html=True)
-    
-    st.markdown("""
-    <div class="module-card">
-        <p>This module uses machine learning to analyze transactions, loan terms, and contracts in real time for Sharia compliance.</p>
-    </div>
-    """, unsafe_allow_html=True)
-    
-    col1, col2 = st.columns(2)
-    
-    with col1:
-        st.subheader("Transaction Analysis")
-        
-        transaction_text = st.text_area(
-            "Enter transaction details to analyze:",
-            "Purchase of manufacturing equipment for textile production with 5% interest financing for 2 years"
-        )
-        
-        if st.button("Analyze Transaction"):
-            with st.spinner("Analyzing for Sharia compliance..."):
-                time.sleep(2)
-                
-                # Mock analysis results
-                st.markdown("### Analysis Results")
-                
-                # Check for interest (riba)
-                if "interest" in transaction_text.lower():
-                    st.markdown("""
-                    <div class="warning-box">
-                        <h4>🚨 Potential Riba (Interest) Detected</h4>
-                        <p>The transaction appears to involve interest-based financing, which is prohibited in Islamic finance.</p>
-                        <p><strong>Recommendation:</strong> Consider Murabaha (cost-plus financing) or Ijara (leasing) as Sharia-compliant alternatives.</p>
-                    </div>
-                    """, unsafe_allow_html=True)
-                else:
-                    st.markdown("""
-                    <div class="success-box">
-                        <h4>✅ No Riba Detected</h4>
-                        <p>The transaction does not appear to involve interest-based elements.</p>
-                    </div>
-                    """, unsafe_allow_html=True)
-                
-                # Check for excessive uncertainty (gharar)
-                if "uncertain" in transaction_text.lower() or "speculative" in transaction_text.lower():
-                    st.markdown("""
-                    <div class="warning-box">
-                        <h4>⚠️ Potential Gharar (Uncertainty) Detected</h4>
-                        <p>The transaction may involve excessive uncertainty or speculation.</p>
-                        <p><strong>Recommendation:</strong> Ensure all terms are clearly defined and avoid speculative elements.</p>
-                    </div>
-                    """, unsafe_allow_html=True)
-                
-                # Check for prohibited sectors
-                prohibited_sectors = ["alcohol", "gambling", "pork", "casino", "tobacco"]
-                detected_sectors = [sector for sector in prohibited_sectors if sector in transaction_text.lower()]
-                
-                if detected_sectors:
-                    st.markdown(f"""
-                    <div class="warning-box">
-                        <h4>🚨 Prohibited Sector Detected</h4>
-                        <p>The transaction involves sectors not permissible in Islamic finance: {', '.join(detected_sectors)}.</p>
-                        <p><strong>Recommendation:</strong> Consider alternative Sharia-compliant investment opportunities.</p>
-                    </div>
-                    """, unsafe_allow_html=True)
-    
-    with col2:
-        st.subheader("Compliance Dashboard")
-        
-        # Compliance metrics
-        st.metric("Overall Compliance Score", f"{st.session_state.user_data['compliance_score']}%")
-        
-        # Compliance by category
-        compliance_data = {
-            'Category': ['Riba Avoidance', 'Gharar Avoidance', 'Halal Investments', 'Zakat Payment'],
-            'Score': [95, 88, 92, 85]
-        }
-        
-        fig = px.bar(compliance_data, x='Category', y='Score', 
-                     title="Compliance by Category", 
-                     color='Score', color_continuous_scale='Viridis')
-        fig.update_layout(height=300)
-        st.plotly_chart(fig, use_container_width=True)
-        
-        # Recent compliance checks
-        st.subheader("Recent Compliance Checks")
-        
-        compliance_checks = [
-            {'Date': '2023-10-15', 'Transaction': 'Murabaha Financing', 'Status': 'Compliant', 'Details': 'No issues found'},
-            {'Date': '2023-10-10', 'Transaction': 'Auto Loan Application', 'Status': 'Non-Compliant', 'Details': 'Interest component detected'},
-            {'Date': '2023-10-05', 'Transaction': 'Investment Screening', 'Status': 'Compliant', 'Details': 'Halal sector verified'},
-        ]
-        
-        st.dataframe(pd.DataFrame(compliance_checks), use_container_width=True)
-
-# Smart Contract Automation Module
-elif app_module == "Smart Contracts":
-    st.markdown('<h2 class="sub-header">📜 Smart Contract Automation</h2>', unsafe_allow_html=True)
-    
-    st.markdown("""
-    <div class="module-card">
-        <p>Automate generation of Islamic contracts (Murabaha, Musharakah, Ijarah, etc.) with blockchain-based traceability.</p>
-    </div>
-    """, unsafe_allow_html=True)
-    
-    col1, col2 = st.columns([2, 1])
-    
-    with col1:
-        st.subheader("Create New Contract")
-        
-        contract_type = st.selectbox(
-            "Select Contract Type",
-            ["Murabaha (Cost-Plus Financing)", "Musharakah (Partnership)", "Ijara (Leasing)", "Salam (Advance Payment)", "Istisna (Manufacturing Contract)"]
-        )
-        
-        st.subheader("Contract Details")
-        
-        col1a, col2a = st.columns(2)
-        
-        with col1a:
-            party_a = st.text_input("Party A (Financier)", "Baraka Islamic Bank")
-            party_b = st.text_input("Party B (Customer)", st.session_state.user_data['name'])
-            asset_description = st.text_input("Asset Description", "Commercial vehicle for transportation business")
-        
-        with col2a:
-            contract_value = st.number_input("Contract Value (KES)", min_value=1000, value=500000, step=1000)
-            profit_margin = st.number_input("Profit Margin (%)", min_value=0.0, value=8.5, step=0.1)
-            duration = st.selectbox("Contract Duration", ["3 months", "6 months", "1 year", "2 years", "3 years", "5 years"])
-        
-        payment_terms = st.selectbox("Payment Terms", ["Lump sum at maturity", "Monthly installments", "Quarterly installments"])
-        
-        if st.button("Generate Contract"):
-            with st.spinner("Generating smart contract..."):
-                time.sleep(3)
-                
-                st.success("✅ Smart contract generated successfully!")
-                
-                # Display contract preview
-                st.subheader("Contract Preview")
-                
-                st.markdown(f"""
-                ### {contract_type} Agreement
-                
-                **Between:** {party_a} (Hereinafter referred to as the "Financier")
-                
-                **And:** {party_b} (Hereinafter referred to as the "Customer")
-                
-                **Asset:** {asset_description}
-                
-                **Contract Value:** KES {contract_value:,}
-                
-                **Profit Margin:** {profit_margin}%
-                
-                **Duration:** {duration}
-                
-                **Payment Terms:** {payment_terms}
-                
-                **Terms and Conditions:**
-                
-                1. This contract is governed by Sharia principles and complies with AAOIFI standards.
-                2. All transactions under this contract are free from Riba (interest).
-                3. The asset remains in the ownership of the Financier until full payment is received.
-                4. The Customer bears all maintenance costs during the contract period.
-                5. Any dispute shall be resolved through Sharia-compliant arbitration.
-                
-                **Digital Signature:** 
-                - Financier: ____________________ (To be signed digitally)
-                - Customer: ____________________ (To be signed digitally)
-                
-                **Blockchain Hash:** `0x1a2b3c4d5e6f7890abcdef1234567890`
-                """)
-                
-                col1b, col2b, col3b = st.columns(3)
-                
-                with col1b:
-                    st.download_button(
-                        "Download Contract PDF",
-                        data="Mock contract content",
-                        file_name=f"{contract_type.replace(' ', '_')}_Contract.pdf",
-                        mime="application/pdf"
-                    )
-                
-                with col2b:
-                    if st.button("Send for Sharia Board Review"):
-                        st.info("Contract sent to Sharia Board for approval")
-                
-                with col3b:
-                    if st.button("Sign Digitally"):
-                        st.success("Contract signed successfully! Hash recorded on blockchain.")
-    
-    with col2:
-        st.subheader("Contract Templates")
-        
-        templates = [
-            {"name": "Murabaha", "usage": "Asset Financing", "complexity": "Medium"},
-            {"name": "Musharakah", "usage": "Partnership", "complexity": "High"},
-            {"name": "Ijara", "usage": "Leasing", "complexity": "Medium"},
-            {"name": "Salam", "usage": "Advance Payment", "complexity": "Medium"},
-            {"name": "Istisna", "usage": "Manufacturing", "complexity": "High"},
-        ]
-        
-        for template in templates:
-            with st.expander(f"{template['name']} - {template['usage']}"):
-                st.write(f"Complexity: {template['complexity']}")
-                if st.button(f"Use Template", key=template['name']):
-                    st.info(f"{template['name']} template selected")
-        
-        st.subheader("Contract History")
-        
-        contract_history = [
-            {"Date": "2023-09-15", "Type": "Murabaha", "Value": "KES 750,000", "Status": "Active"},
-            {"Date": "2023-08-22", "Type": "Ijara", "Value": "KES 1,200,000", "Status": "Completed"},
-            {"Date": "2023-07-10", "Type": "Musharakah", "Value": "KES 2,500,000", "Status": "Active"},
-        ]
-        
-        for contract in contract_history:
-            st.write(f"**{contract['Date']}** - {contract['Type']}")
-            st.write(f"Value: {contract['Value']} | Status: {contract['Status']}")
-            st.progress(80 if contract['Status'] == 'Active' else 100)
-            st.write("---")
-
-# Halal Investments Module
-elif app_module == "Halal Investments":
-    st.markdown('<h2 class="sub-header">💹 Sukuk & Halal Investment Marketplace</h2>', unsafe_allow_html=True)
-    
-    st.markdown("""
-    <div class="module-card">
-        <p>Discover and invest in Sharia-compliant investment opportunities with profit-sharing models instead of interest.</p>
-    </div>
-    """, unsafe_allow_html=True)
-    
-    tab1, tab2, tab3 = st.tabs(["Investment Opportunities", "My Portfolio", "Sukuk Marketplace"])
-    
-    with tab1:
-        st.subheader("Available Investment Opportunities")
-        
-        # Sample investment opportunities
-        opportunities = [
-            {
-                "name": "Sukuk Al-Ijarah - Government",
-                "type": "Sukuk",
-                "return": 8.5,
-                "risk": "Low",
-                "min_investment": 50000,
-                "duration": "3 years",
-                "description": "Government infrastructure project financing through Ijarah structure"
-            },
-            {
-                "name": "Halal Equity Fund",
-                "type": "Equity",
-                "return": 12.2,
-                "risk": "Medium",
-                "min_investment": 10000,
-                "duration": "5 years",
-                "description": "Diversified portfolio of Sharia-compliant stocks"
-            },
-            {
-                "name": "Islamic Real Estate Fund",
-                "type": "Real Estate",
-                "return": 7.8,
-                "risk": "Medium",
-                "min_investment": 50000,
-                "duration": "7 years",
-                "description": "Income-generating commercial real estate properties"
-            },
-            {
-                "name": "Green Energy Sukuk",
-                "type": "Sukuk",
-                "return": 9.2,
-                "risk": "Medium",
-                "min_investment": 25000,
-                "duration": "5 years",
-                "description": "Financing for renewable energy projects"
-            }
-        ]
-        
-        for i, opportunity in enumerate(opportunities):
-            with st.expander(f"{opportunity['name']} - Expected Return: {opportunity['return']}%", expanded=True if i==0 else False):
-                col1, col2 = st.columns([3, 1])
-                
-                with col1:
-                    st.write(f"**Type:** {opportunity['type']}")
-                    st.write(f"**Risk Level:** {opportunity['risk']}")
-                    st.write(f"**Minimum Investment:** KES {opportunity['min_investment']:,}")
-                    st.write(f"**Duration:** {opportunity['duration']}")
-                    st.write(f"**Description:** {opportunity['description']}")
-                
-                with col2:
-                    investment_amount = st.number_input(
-                        f"Investment Amount (KES)",
-                        min_value=opportunity['min_investment'],
-                        value=opportunity['min_investment'],
-                        step=1000,
-                        key=f"invest_{i}"
-                    )
-                    
-                    if st.button("Invest Now", key=f"btn_{i}"):
-                        if investment_amount > st.session_state.user_data['savings']:
-                            st.error("Insufficient funds for this investment")
-                        else:
-                            # Update user data
-                            st.session_state.user_data['savings'] -= investment_amount
-                            st.session_state.user_data['investments'] += investment_amount
-                            
-                            # Add to investments
-                            new_investment = {
-                                'name': opportunity['name'],
-                                'amount': investment_amount,
-                                'return': opportunity['return'],
-                                'maturity': (datetime.now() + timedelta(days=365*3)).strftime("%Y-%m-%d")
-                            }
-                            st.session_state.investments.append(new_investment)
-                            
-                            st.success(f"Successfully invested KES {investment_amount:,} in {opportunity['name']}")
-    
-    with tab2:
-        st.subheader("My Investment Portfolio")
-        
-        if not st.session_state.investments:
-            st.info("You don't have any investments yet. Explore opportunities in the 'Investment Opportunities' tab.")
-        else:
-            # Portfolio summary
-            total_invested = sum(inv['amount'] for inv in st.session_state.investments)
-            avg_return = sum(inv['return'] * inv['amount'] for inv in st.session_state.investments) / total_invested
-            
-            col1, col2, col3 = st.columns(3)
-            col1.metric("Total Invested", f"KES {total_invested:,}")
-            col2.metric("Number of Investments", len(st.session_state.investments))
-            col3.metric("Average Return", f"{avg_return:.1f}%")
-            
-            # Investment breakdown
-            st.subheader("Investment Breakdown")
-            
-            investment_names = [inv['name'] for inv in st.session_state.investments]
-            investment_amounts = [inv['amount'] for inv in st.session_state.investments]
-            
-            fig = px.pie(
-                values=investment_amounts, 
-                names=investment_names,
-                title="Portfolio Allocation"
-            )
-            st.plotly_chart(fig, use_container_width=True)
-            
-            # Investment details
-            st.subheader("Investment Details")
-            investments_df = pd.DataFrame(st.session_state.investments)
-            st.dataframe(investments_df, use_container_width=True)
-    
-    with tab3:
-        st.subheader("Sukuk Marketplace")
-        
-        st.info("""
-        Sukuk are Sharia-compliant bonds that represent partial ownership in an asset. 
-        Unlike conventional bonds that pay interest, Sukuk provide returns through profit-sharing 
-        or rental income from the underlying asset.
-        """)
-        
-        # Sample Sukuk offerings - FIXED THE SYNTAX ERROR HERE
-        sukuk_offerings = [
-            {
-                "name": "Kenya Government Ijarah Sukuk",
-                "issue_date": "2023-11-01",
-                "maturity": "2028-11-01",
-                "yield": 8.7,
-                "minimum": 50000,
-                "rating": "AAA"
-            },
-            {
-                "name": "East African Community Infrastructure Sukuk",  # Fixed the unterminated string
-                "issue_date": "2023-10-15",
-                "maturity": "2030-10-15",
-                "yield": 9.2,
-                "minimum": 100000,
-                "rating": "AA"
-            },
-            {
-                "name": "Green Energy Wakala Sukuk",
-                "issue_date": "2023-09-20",
-                "maturity": "2026-09-20",
-                "yield": 7.9,
-                "minimum": 25000,
-                "rating": "A"
-            }
-        ]
-        
-        for sukuk in sukuk_offerings:
-            with st.expander(f"{sukuk['name']} - Yield: {sukuk['yield']}%"):
-                col1, col2, col3 = st.columns(3)
-                
-                with col1:
-                    st.write(f"**Issue Date:** {sukuk['issue_date']}")
-                    st.write(f"**Maturity:** {sukuk['maturity']}")
-                
-                with col2:
-                    st.write(f"**Minimum Investment:** KES {sukuk['minimum']:,}")
-                    st.write(f"**Credit Rating:** {sukuk['rating']}")
-                
-                with col3:
-                    st.write(f"**Expected Yield:** {sukuk['yield']}%")
-                    if st.button("View Details", key=f"sukuk_{sukuk['name']}"):
-                        st.info(f"Detailed prospectus for {sukuk['name']} would be displayed here")
-
-# Zakat Management Module
-elif app_module == "Zakat Management":
-    st.markdown('<h2 class="sub-header">💰 Zakat & Sadaqah Management Hub</h2>', unsafe_allow_html=True)
-    
-    st.markdown("""
-    <div class="module-card">
-        <p>Calculate, track, and automate your Zakat contributions to eligible recipients and charitable causes.</p>
-    </div>
-    """, unsafe_allow_html=True)
-    
-    tab1, tab2, tab3 = st.tabs(["Zakat Calculator", "Zakat Payment", "Sadaqah & Donations"])
-    
-    with tab1:
-        st.subheader("Zakat Calculator")
-        
-        st.info("""
-        Zakat is obligatory for Muslims who meet the Nisab threshold (value of 87.48g of gold or 612.36g of silver).
-        Typically calculated as 2.5% of wealth held for one lunar year.
-        """)
-        
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            st.subheader("Your Assets")
-            cash_savings = st.number_input("Cash & Savings (KES)", min_value=0, value=st.session_state.user_data['savings'])
-            gold_value = st.number_input("Gold Value (KES)", min_value=0, value=50000)
-            silver_value = st.number_input("Silver Value (KES)", min_value=0, value=10000)
-            investments_value = st.number_input("Investments (KES)", min_value=0, value=st.session_state.user_data['investments'])
-            business_assets = st.number_input("Business Assets (KES)", min_value=0, value=0)
-            other_assets = st.number_input("Other Assets (KES)", min_value=0, value=0)
-        
-        with col2:
-            st.subheader("Your Liabilities")
-            immediate_debts = st.number_input("Immediate Debts (KES)", min_value=0, value=0)
-            bills_payable = st.number_input("Bills Payable (KES)", min_value=0, value=0)
-            other_liabilities = st.number_input("Other Liabilities (KES)", min_value=0, value=0)
-            
-            st.subheader("Zakat Calculation")
-            if st.button("Calculate My Zakat"):
-                total_assets = cash_savings + gold_value + silver_value + investments_value + business_assets + other_assets
-                total_liabilities = immediate_debts + bills_payable + other_liabilities
-                net_wealth = total_assets - total_liabilities
-                
-                # Nisab threshold (using silver standard - approximately KES 15,000)
-                nisab = 15000
-                
-                if net_wealth >= nisab:
-                    zakat_payable = net_wealth * 0.025
-                    
-                    st.success(f"Your Zakat payable is: KES {zakat_payable:,.2f}")
-                    
-                    # Store for potential payment
-                    st.session_state.calculated_zakat = zakat_payable
-                else:
-                    st.info(f"Your net wealth (KES {net_wealth:,.2f}) is below the Nisab threshold (KES {nisab:,.2f}). Zakat is not obligatory.")
-    
-    with tab2:
-        st.subheader("Zakat Payment")
-        
-        if 'calculated_zakat' in st.session_state:
-            st.metric("Your Calculated Zakat", f"KES {st.session_state.calculated_zakat:,.2f}")
-            
-            st.subheader("Select Recipient")
-            recipient_type = st.selectbox(
-                "Zakat Recipient Category",
-                ["The Poor (Fuqara)", "The Needy (Masakin)", "Zakat Collectors", "Those whose hearts are to be reconciled", 
-                 "Those in bondage", "The debt-ridden", "In the cause of Allah", "The wayfarer"]
-            )
-            
-            st.subheader("Payment Method")
-            payment_method = st.radio("Select Payment Method", ["M-Pesa", "Bank Transfer", "Debit Card", "Direct Deduction"])
-            
-            if st.button("Pay Zakat"):
-                with st.spinner("Processing your Zakat payment..."):
-                    time.sleep(2)
-                    
-                    # Update user data
-                    st.session_state.user_data['zakat_paid'] += st.session_state.calculated_zakat
-                    st.session_state.user_data['savings'] -= st.session_state.calculated_zakat
-                    
-                    st.success(f"Zakat payment of KES {st.session_state.calculated_zakat:,.2f} completed successfully!")
-                    st.balloons()
-                    
-                    # Reset calculated zakat
-                    del st.session_state.calculated_zakat
-        else:
-            st.info("Please calculate your Zakat first using the Zakat Calculator tab.")
-    
-    with tab3:
-        st.subheader("Sadaqah & Donations")
-        
-        st.info("""
-        Sadaqah is voluntary charity that can be given at any time, in any amount, to any worthy cause.
-        Unlike Zakat, there are no specific rules or thresholds for Sadaqah.
-        """)
-        
-        charities = [
-            {"name": "Islamic Relief Kenya", "focus": "Poverty Alleviation", "rating": "★★★★★"},
-            {"name": "Muslim Hands Africa", "focus": "Education & Healthcare", "rating": "★★★★☆"},
-            {"name": "Local Mosque Fund", "focus": "Community Development", "rating": "★★★★☆"},
-            {"name": "Orphan Support Program", "focus": "Child Welfare", "rating": "★★★★★"},
-        ]
-        
-        selected_charity = st.selectbox("Select Charity", [charity["name"] for charity in charities])
-        
-        donation_amount = st.number_input("Donation Amount (KES)", min_value=100, value=1000, step=100)
-        
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            donation_frequency = st.selectbox("Donation Frequency", ["One-time", "Monthly", "Quarterly", "Annually"])
-        
-        with col2:
-            payment_method = st.selectbox("Payment Method", ["M-Pesa", "Bank Transfer", "Debit Card"])
-        
-        if st.button("Make Donation"):
-            if donation_amount > st.session_state.user_data['savings']:
-                st.error("Insufficient funds for this donation")
-            else:
-                # Update user data
-                st.session_state.user_data['savings'] -= donation_amount
-                
-                st.success(f"Thank you for your donation of KES {donation_amount:,} to {selected_charity}!")
-                st.balloons()
-
-# Education & Advisory Module
-elif app_module == "Education & Advisory":
-    st.markdown('<h2 class="sub-header">📚 Islamic Finance Education & Advisory</h2>', unsafe_allow_html=True)
-    
-    st.markdown("""
-    <div class="module-card">
-        <p>Learn about Islamic finance principles and get personalized advice through our AI-powered Virtual Sharia Advisor.</p>
-    </div>
-    """, unsafe_allow_html=True)
-    
-    tab1, tab2, tab3 = st.tabs(["Learning Center", "Virtual Advisor", "Certification"])
-    
-    with tab1:
-        st.subheader("Islamic Finance Learning Center")
-        
-        topics = [
-            {
-                "title": "Introduction to Islamic Finance",
-                "level": "Beginner",
-                "duration": "15 min",
-                "description": "Basic principles and concepts of Islamic banking and finance"
-            },
-            {
-                "title": "Understanding Riba (Interest)",
-                "level": "Beginner",
-                "duration": "20 min",
-                "description": "Why interest is prohibited and alternatives in Islamic finance"
-            },
-            {
-                "title": "Murabaha Financing",
-                "level": "Intermediate",
-                "duration": "25 min",
-                "description": "Cost-plus financing structure and applications"
-            },
-            {
-                "title": "Sukuk vs Conventional Bonds",
-                "level": "Intermediate",
-                "duration": "30 min",
-                "description": "Key differences between Islamic and conventional bonds"
-            },
-            {
-                "title": "Advanced Islamic Contracts",
-                "level": "Advanced",
-                "duration": "45 min",
-                "description": "Musharakah, Mudarabah, and other partnership models"
-            }
-        ]
-        
-        for topic in topics:
-            with st.expander(f"{topic['title']} ({topic['level']} - {topic['duration']})"):
-                st.write(topic['description'])
-                
-                col1, col2 = st.columns([3, 1])
-                
-                with col1:
-                    if st.button(f"Start Learning", key=f"learn_{topic['title']}"):
-                        st.info(f"Starting lesson: {topic['title']}")
-                
-                with col2:
-                    if st.button("Take Quiz", key=f"quiz_{topic['title']}"):
-                        st.info(f"Quiz for {topic['title']} would open here")
-        
-        st.subheader("Video Resources")
-        st.video("https://www.youtube.com/watch?v=2K7mtA1BBNU")  # Sample Islamic finance video
-    
-    with tab2:
-        st.subheader("Virtual Sharia Advisor")
-        
-        st.info("""
-        Our AI-powered advisor can answer your questions about Islamic finance principles, 
-        product suitability, and Sharia compliance based on AAOIFI and IFSB standards.
-        """)
-        
-        user_question = st.text_area(
-            "Ask a question about Islamic finance:",
-            "What's the difference between Murabaha and conventional loan?"
-        )
-        
-        if st.button("Get Advice"):
-            with st.spinner("Consulting Sharia principles..."):
-                time.sleep(2)
-                
-                # Sample responses based on question keywords
-                if "murabaha" in user_question.lower() and "conventional" in user_question.lower():
-                    st.markdown("""
-                    ### Murabaha vs Conventional Loan
-                    
-                    **Murabaha (Cost-Plus Financing):**
-                    - The bank purchases an asset and sells it to you at a marked-up price
-                    - The profit margin is fixed and agreed upon upfront
-                    - No interest is charged
-                    - The asset is owned by the bank until full payment
-                    
-                    **Conventional Loan:**
-                    - The bank lends money which you use to purchase the asset
-                    - Interest is charged on the loan amount
-                    - You own the asset immediately
-                    - The interest rate may be fixed or variable
-                    
-                    **Key Difference:** Murabaha is asset-based with transparent profit, while conventional loans are money-based with interest.
-                    """)
-                elif "sukuk" in user_question.lower():
-                    st.markdown("""
-                    ### Sukuk (Islamic Bonds)
-                    
-                    Sukuk are Sharia-compliant investment certificates that represent:
-                    - Partial ownership in an underlying asset
-                    - Rights to cash flows from the asset
-                    - Unlike conventional bonds that pay interest, Sukuk provide returns through:
-                      - Profit-sharing from business activities
-                      - Rental income from real estate
-                      - Other Sharia-compliant revenue streams
-                    
-                    Sukuk must be backed by tangible assets and cannot involve interest, uncertainty, or prohibited activities.
-                    """)
-                else:
-                    st.markdown("""
-                    ### General Islamic Finance Principles
-                    
-                    Islamic finance is guided by Sharia principles that prohibit:
-                    - **Riba (Interest)**: Charging or paying interest
-                    - **Gharar (Excessive Uncertainty)**: Speculative transactions
-                    - **Haram Activities**: Investments in prohibited sectors
-                    
-                    Instead, Islamic finance uses:
-                    - Asset-backed financing
-                    - Profit-and-loss sharing
-                    - Ethical investment screening
-                    
-                    Would you like more specific information about any of these principles?
-                    """)
-    
-    with tab3:
-        st.subheader("Islamic Banking Certification")
-        
-        st.info("""
-        Enhance your knowledge with our certified courses in Islamic banking and finance.
-        These courses are designed for banking professionals, students, and anyone interested
-        in understanding Sharia-compliant financial systems.
-        """)
-        
-        courses = [
-            {
-                "name": "Certified Islamic Finance Executive (CIFE)",
-                "level": "Professional",
-                "duration": "3 months",
-                "fee": "KES 25,000"
-            },
-            {
-                "name": "Sharia Advisory Certification",
-                "level": "Advanced",
-                "duration": "6 months",
-                "fee": "KES 45,000"
-            },
-            {
-                "name": "Islamic Banking Fundamentals",
-                "level": "Beginner",
-                "duration": "1 month",
-                "fee": "KES 10,000"
-            }
-        ]
-        
-        for course in courses:
-            with st.expander(f"{course['name']} ({course['level']})"):
-                st.write(f"**Duration:** {course['duration']}")
-                st.write(f"**Fee:** {course['fee']}")
-                
-                if st.button("Enroll Now", key=f"enroll_{course['name']}"):
-                    st.success(f"Successfully enrolled in {course['name']}!")
-
-# Footer
-st.markdown("---")
-st.markdown(
+class HighVolumePDFtoExcelConverter:
     """
-    <div style="text-align: center; color: #6B7280;">
-        <p>Baraka FinTech - Islamic Banking Compliance & Empowerment Platform</p>
-        <p>© 2023 Baraka FinTech. All rights reserved. | Sharia Advisory Board Certified</p>
-    </div>
-    """, 
-    unsafe_allow_html=True
-)
+    High-performance PDF to Excel converter optimized for large datasets (1000+ rows)
+    """
+    
+    def __init__(self, max_workers: int = 4, chunk_size: int = 1000):
+        """
+        Initialize the converter
+        
+        Args:
+            max_workers: Number of parallel workers for processing
+            chunk_size: Rows to process in each chunk (for memory optimization)
+        """
+        self.max_workers = max_workers
+        self.chunk_size = chunk_size
+        self.output_dir = "converted_excel_large"
+        
+        # Create output directory if it doesn't exist
+        os.makedirs(self.output_dir, exist_ok=True)
+        
+        # Performance metrics
+        self.metrics = {
+            'total_rows': 0,
+            'processing_time': 0,
+            'tables_found': 0,
+            'memory_usage_mb': 0
+        }
+    
+    def convert_large_pdf_to_excel(self,
+                                  pdf_path: str,
+                                  excel_path: Optional[str] = None,
+                                  max_rows: Optional[int] = None,
+                                  max_columns: Optional[int] = None,
+                                  extraction_method: str = 'auto',
+                                  optimize_memory: bool = True,
+                                  split_by_pages: bool = False) -> str:
+        """
+        Convert large PDF files to Excel with high performance
+        
+        Args:
+            pdf_path: Path to PDF file
+            excel_path: Output Excel file path
+            max_rows: Maximum rows to extract (None for unlimited)
+            max_columns: Maximum columns to extract
+            extraction_method: 'auto', 'camelot', 'pdfplumber', 'tabula', 'hybrid'
+            optimize_memory: Use memory-efficient processing
+            split_by_pages: Split large PDFs into multiple Excel files by pages
+        
+        Returns:
+            Path to created Excel file(s)
+        """
+        
+        print(f"🔍 Starting conversion of: {pdf_path}")
+        print(f"📊 Method: {extraction_method}")
+        start_time = time.time()
+        
+        # Validate PDF file
+        if not os.path.exists(pdf_path):
+            raise FileNotFoundError(f"PDF file not found: {pdf_path}")
+        
+        # Generate output path if not provided
+        if excel_path is None:
+            base_name = os.path.splitext(os.path.basename(pdf_path))[0]
+            timestamp = int(time.time())
+            excel_path = os.path.join(self.output_dir, f"{base_name}_{timestamp}.xlsx")
+        
+        # Get PDF page count
+        page_count = self._get_pdf_page_count(pdf_path)
+        print(f"📄 PDF has {page_count} pages")
+        
+        # Choose extraction method
+        if extraction_method == 'auto':
+            # Auto-detect best method based on PDF characteristics
+            extraction_method = self._detect_best_method(pdf_path)
+            print(f"🤖 Auto-selected method: {extraction_method}")
+        
+        # Process based on size
+        if page_count > 50 and split_by_pages:
+            # For very large PDFs, split by pages
+            print(f"📚 Large PDF detected ({page_count} pages). Splitting by pages...")
+            return self._process_large_pdf_by_pages(
+                pdf_path, excel_path, max_rows, max_columns, 
+                extraction_method, optimize_memory
+            )
+        else:
+            # Process as single file
+            return self._process_pdf(
+                pdf_path, excel_path, max_rows, max_columns, 
+                extraction_method, optimize_memory
+            )
+    
+    def _process_pdf(self, pdf_path: str, excel_path: str, 
+                    max_rows: Optional[int], max_columns: Optional[int],
+                    method: str, optimize_memory: bool) -> str:
+        """Process PDF file with selected method"""
+        
+        try:
+            if method == 'camelot' and CAMELOT_AVAILABLE:
+                result = self._extract_with_camelot(pdf_path, optimize_memory)
+            elif method == 'pdfplumber' and PDFPLUMBER_AVAILABLE:
+                result = self._extract_with_pdfplumber(pdf_path, optimize_memory)
+            elif method == 'tabula' and TABULA_AVAILABLE:
+                result = self._extract_with_tabula(pdf_path, optimize_memory)
+            elif method == 'hybrid':
+                result = self._extract_with_hybrid(pdf_path, optimize_memory)
+            else:
+                # Fallback to available method
+                if PDFPLUMBER_AVAILABLE:
+                    result = self._extract_with_pdfplumber(pdf_path, optimize_memory)
+                elif CAMELOT_AVAILABLE:
+                    result = self._extract_with_camelot(pdf_path, optimize_memory)
+                elif TABULA_AVAILABLE:
+                    result = self._extract_with_tabula(pdf_path, optimize_memory)
+                else:
+                    raise ImportError("No PDF extraction library available")
+            
+            # Apply row and column limits
+            result = self._apply_limits_to_data(result, max_rows, max_columns)
+            
+            # Save to Excel
+            self._save_to_excel(result, excel_path, optimize_memory)
+            
+            # Update metrics
+            self.metrics['processing_time'] = time.time() - start_time
+            self.metrics['total_rows'] = sum(len(df) for df in result.values())
+            self.metrics['tables_found'] = len(result)
+            
+            print(f"✅ Conversion completed successfully!")
+            print(f"📈 Statistics:")
+            print(f"   • Total rows extracted: {self.metrics['total_rows']:,}")
+            print(f"   • Tables found: {self.metrics['tables_found']}")
+            print(f"   • Processing time: {self.metrics['processing_time']:.2f} seconds")
+            print(f"   • Output file: {excel_path}")
+            
+            return excel_path
+            
+        except Exception as e:
+            print(f"❌ Error during conversion: {str(e)}")
+            # Try fallback method
+            print("🔄 Trying fallback method...")
+            return self._fallback_conversion(pdf_path, excel_path, max_rows, max_columns)
+    
+    def _extract_with_camelot(self, pdf_path: str, optimize_memory: bool) -> Dict[str, pd.DataFrame]:
+        """Extract tables using Camelot (best for structured tables)"""
+        print("🔄 Using Camelot for table extraction...")
+        
+        try:
+            # Read all tables from PDF
+            tables = camelot.read_pdf(pdf_path, 
+                                     pages='all',
+                                     flavor='lattice',
+                                     suppress_stdout=True,
+                                     strip_text='\n')
+            
+            print(f"📊 Camelot found {len(tables)} potential tables")
+            
+            result = {}
+            for i, table in enumerate(tables):
+                if table.parsing_report['accuracy'] > 50:  # Filter low accuracy tables
+                    df = table.df
+                    
+                    # Clean the dataframe
+                    df = self._clean_dataframe(df)
+                    
+                    if not df.empty and len(df) > 1:
+                        table_name = f"Table_{i+1}"
+                        if optimize_memory:
+                            df = self._optimize_dataframe_memory(df)
+                        result[table_name] = df
+            
+            return result
+            
+        except Exception as e:
+            print(f"Camelot extraction failed: {e}")
+            return {}
+    
+    def _extract_with_pdfplumber(self, pdf_path: str, optimize_memory: bool) -> Dict[str, pd.DataFrame]:
+        """Extract tables using PDFPlumber"""
+        print("🔄 Using PDFPlumber for extraction...")
+        
+        result = {}
+        table_counter = 1
+        
+        with pdfplumber.open(pdf_path) as pdf:
+            total_pages = len(pdf.pages)
+            
+            # Process pages in parallel for large PDFs
+            if total_pages > 10 and self.max_workers > 1:
+                print(f"⚡ Processing {total_pages} pages in parallel...")
+                with ThreadPoolExecutor(max_workers=min(self.max_workers, total_pages)) as executor:
+                    page_results = list(executor.map(
+                        self._process_pdfplumber_page,
+                        [(pdf_path, i) for i in range(total_pages)]
+                    ))
+                
+                # Combine results
+                for page_tables in page_results:
+                    for df in page_tables:
+                        if not df.empty:
+                            table_name = f"Table_{table_counter}"
+                            if optimize_memory:
+                                df = self._optimize_dataframe_memory(df)
+                            result[table_name] = df
+                            table_counter += 1
+            else:
+                # Process pages sequentially
+                for page_num, page in enumerate(pdf.pages):
+                    print(f"📖 Processing page {page_num + 1}/{total_pages}")
+                    
+                    # Extract tables
+                    tables = page.extract_tables()
+                    
+                    for table_num, table_data in enumerate(tables):
+                        if table_data:
+                            df = pd.DataFrame(table_data)
+                            df = self._clean_dataframe(df)
+                            
+                            if not df.empty and len(df) > 1:
+                                table_name = f"Page_{page_num+1}_Table_{table_num+1}"
+                                if optimize_memory:
+                                    df = self._optimize_dataframe_memory(df)
+                                result[table_name] = df
+                    
+                    # Extract text if no tables found
+                    if not tables:
+                        text = page.extract_text()
+                        if text and len(text.strip()) > 0:
+                            df = self._text_to_dataframe(text)
+                            if not df.empty:
+                                table_name = f"Page_{page_num+1}_Text"
+                                result[table_name] = df
+        
+        return result
+    
+    def _process_pdfplumber_page(self, args: Tuple) -> List[pd.DataFrame]:
+        """Process a single page with PDFPlumber (for parallel processing)"""
+        pdf_path, page_num = args
+        page_tables = []
+        
+        try:
+            with pdfplumber.open(pdf_path) as pdf:
+                if page_num < len(pdf.pages):
+                    page = pdf.pages[page_num]
+                    tables = page.extract_tables()
+                    
+                    for table_data in tables:
+                        if table_data:
+                            df = pd.DataFrame(table_data)
+                            df = self._clean_dataframe(df)
+                            if not df.empty and len(df) > 1:
+                                page_tables.append(df)
+        except Exception as e:
+            print(f"Error processing page {page_num}: {e}")
+        
+        return page_tables
+    
+    def _extract_with_tabula(self, pdf_path: str, optimize_memory: bool) -> Dict[str, pd.DataFrame]:
+        """Extract tables using Tabula"""
+        print("🔄 Using Tabula for extraction...")
+        
+        try:
+            # Read all tables
+            dfs = read_pdf(pdf_path, pages='all', multiple_tables=True)
+            
+            result = {}
+            for i, df in enumerate(dfs):
+                if not df.empty:
+                    df = self._clean_dataframe(df)
+                    if optimize_memory:
+                        df = self._optimize_dataframe_memory(df)
+                    result[f"Table_{i+1}"] = df
+            
+            return result
+            
+        except Exception as e:
+            print(f"Tabula extraction failed: {e}")
+            return {}
+    
+    def _extract_with_hybrid(self, pdf_path: str, optimize_memory: bool) -> Dict[str, pd.DataFrame]:
+        """Use multiple methods and combine best results"""
+        print("🔄 Using hybrid extraction method...")
+        
+        all_results = {}
+        
+        # Try Camelot first
+        if CAMELOT_AVAILABLE:
+            camelot_results = self._extract_with_camelot(pdf_path, optimize_memory)
+            all_results.update(camelot_results)
+        
+        # Try PDFPlumber for remaining pages
+        if PDFPLUMBER_AVAILABLE and len(all_results) < 5:  # If few tables found
+            with pdfplumber.open(pdf_path) as pdf:
+                total_pages = len(pdf.pages)
+                processed_pages = set()
+                
+                # Identify which pages were processed by Camelot
+                for table_name in all_results.keys():
+                    if 'Page_' in table_name:
+                        try:
+                            page_num = int(table_name.split('_')[1])
+                            processed_pages.add(page_num)
+                        except:
+                            pass
+                
+                # Process remaining pages with PDFPlumber
+                for page_num in range(total_pages):
+                    if page_num not in processed_pages:
+                        page = pdf.pages[page_num]
+                        tables = page.extract_tables()
+                        
+                        for table_num, table_data in enumerate(tables):
+                            if table_data:
+                                df = pd.DataFrame(table_data)
+                                df = self._clean_dataframe(df)
+                                if not df.empty:
+                                    table_name = f"Page_{page_num+1}_Table_{table_num+1}"
+                                    if optimize_memory:
+                                        df = self._optimize_dataframe_memory(df)
+                                    all_results[table_name] = df
+        
+        return all_results
+    
+    def _process_large_pdf_by_pages(self, pdf_path: str, base_excel_path: str,
+                                   max_rows: Optional[int], max_columns: Optional[int],
+                                   method: str, optimize_memory: bool) -> str:
+        """Process very large PDFs by splitting into multiple Excel files"""
+        
+        with pdfplumber.open(pdf_path) as pdf:
+            total_pages = len(pdf.pages)
+            pages_per_file = min(50, total_pages)  # Max 50 pages per file
+        
+        # Create a directory for split files
+        base_name = os.path.splitext(os.path.basename(base_excel_path))[0]
+        split_dir = os.path.join(self.output_dir, f"{base_name}_split")
+        os.makedirs(split_dir, exist_ok=True)
+        
+        file_paths = []
+        
+        for start_page in range(0, total_pages, pages_per_file):
+            end_page = min(start_page + pages_per_file, total_pages)
+            chunk_pdf_path = self._extract_pdf_pages(pdf_path, start_page, end_page, split_dir)
+            
+            if chunk_pdf_path:
+                chunk_excel_path = os.path.join(
+                    split_dir, 
+                    f"{base_name}_pages_{start_page+1}_{end_page}.xlsx"
+                )
+                
+                try:
+                    result_path = self._process_pdf(
+                        chunk_pdf_path, chunk_excel_path, max_rows, max_columns,
+                        method, optimize_memory
+                    )
+                    file_paths.append(result_path)
+                    
+                    # Clean up temporary PDF chunk
+                    os.remove(chunk_pdf_path)
+                    
+                except Exception as e:
+                    print(f"Error processing pages {start_page+1}-{end_page}: {e}")
+        
+        # Create a master file with links to all split files
+        master_path = self._create_master_file(file_paths, base_excel_path)
+        
+        print(f"📚 Large PDF processed as {len(file_paths)} separate files")
+        print(f"📋 Master file created: {master_path}")
+        
+        return master_path
+    
+    def _extract_pdf_pages(self, pdf_path: str, start_page: int, 
+                          end_page: int, output_dir: str) -> Optional[str]:
+        """Extract specific pages from PDF"""
+        try:
+            from PyPDF2 import PdfReader, PdfWriter
+            
+            reader = PdfReader(pdf_path)
+            writer = PdfWriter()
+            
+            for page_num in range(start_page, end_page):
+                if page_num < len(reader.pages):
+                    writer.add_page(reader.pages[page_num])
+            
+            output_path = os.path.join(output_dir, f"temp_pages_{start_page+1}_{end_page}.pdf")
+            with open(output_path, 'wb') as output_file:
+                writer.write(output_file)
+            
+            return output_path
+            
+        except Exception as e:
+            print(f"Error extracting pages: {e}")
+            return None
+    
+    def _create_master_file(self, file_paths: List[str], master_path: str) -> str:
+        """Create a master Excel file with summary and links"""
+        
+        summary_data = []
+        for i, file_path in enumerate(file_paths):
+            file_name = os.path.basename(file_path)
+            file_size = os.path.getsize(file_path) / (1024 * 1024)  # MB
+            
+            # Try to get row count from each file
+            try:
+                xl = pd.ExcelFile(file_path)
+                total_rows = 0
+                for sheet in xl.sheet_names:
+                    df = pd.read_excel(file_path, sheet_name=sheet, nrows=1)
+                    # Get approximate row count from file size and columns
+                    total_rows += len(pd.read_excel(file_path, sheet_name=sheet))
+            except:
+                total_rows = "Unknown"
+            
+            summary_data.append({
+                'File': file_name,
+                'Size_MB': f"{file_size:.2f}",
+                'Rows': total_rows,
+                'Path': file_path
+            })
+        
+        # Create summary dataframe
+        summary_df = pd.DataFrame(summary_data)
+        
+        # Save master file
+        with pd.ExcelWriter(master_path, engine='openpyxl') as writer:
+            summary_df.to_excel(writer, sheet_name='Summary', index=False)
+            
+            # Add instructions sheet
+            instructions = pd.DataFrame({
+                'Instruction': [
+                    'This is a master file for large PDF conversion',
+                    f'Total split files: {len(file_paths)}',
+                    'Open individual files for detailed data',
+                    'The Summary sheet contains file locations and statistics'
+                ]
+            })
+            instructions.to_excel(writer, sheet_name='Instructions', index=False)
+        
+        return master_path
+    
+    def _apply_limits_to_data(self, data: Dict[str, pd.DataFrame], 
+                             max_rows: Optional[int], max_columns: Optional[int]) -> Dict[str, pd.DataFrame]:
+        """Apply row and column limits to data"""
+        
+        if max_rows is None and max_columns is None:
+            return data
+        
+        result = {}
+        for name, df in data.items():
+            # Apply column limit
+            if max_columns and len(df.columns) > max_columns:
+                df = df.iloc[:, :max_columns]
+            
+            # Apply row limit
+            if max_rows and len(df) > max_rows:
+                df = df.head(max_rows)
+            
+            result[name] = df
+        
+        return result
+    
+    def _save_to_excel(self, data: Dict[str, pd.DataFrame], 
+                      excel_path: str, optimize_memory: bool):
+        """Save data to Excel with memory optimization"""
+        
+        print(f"💾 Saving to Excel: {excel_path}")
+        
+        if optimize_memory and len(data) > 1:
+            # Use chunked writing for large datasets
+            self._save_to_excel_chunked(data, excel_path)
+        else:
+            # Standard writing
+            with pd.ExcelWriter(excel_path, engine='openpyxl') as writer:
+                for sheet_name, df in data.items():
+                    # Truncate sheet name if too long
+                    safe_sheet_name = str(sheet_name)[:31]
+                    
+                    # Write dataframe to Excel
+                    df.to_excel(writer, sheet_name=safe_sheet_name, index=False)
+                    
+                    # Auto-adjust column widths
+                    worksheet = writer.sheets[safe_sheet_name]
+                    for idx, col in enumerate(df.columns):
+                        column_width = max(
+                            df[col].astype(str).str.len().max(),
+                            len(str(col))
+                        ) + 2
+                        column_letter = chr(65 + idx) if idx < 26 else f"A{chr(65 + idx - 26)}"
+                        worksheet.column_dimensions[column_letter].width = min(column_width, 50)
+    
+    def _save_to_excel_chunked(self, data: Dict[str, pd.DataFrame], excel_path: str):
+        """Save large datasets in chunks to conserve memory"""
+        
+        print("⚡ Using chunked writing for memory optimization...")
+        
+        # Create writer
+        writer = pd.ExcelWriter(excel_path, engine='openpyxl')
+        
+        for sheet_name, df in data.items():
+            safe_sheet_name = str(sheet_name)[:31]
+            
+            if len(df) > self.chunk_size:
+                # Write in chunks
+                chunks = [df[i:i + self.chunk_size] for i in range(0, len(df), self.chunk_size)]
+                
+                # Write first chunk with header
+                chunks[0].to_excel(writer, sheet_name=safe_sheet_name, index=False)
+                
+                # Append remaining chunks
+                for chunk in chunks[1:]:
+                    chunk.to_excel(writer, sheet_name=safe_sheet_name, 
+                                 startrow=writer.sheets[safe_sheet_name].max_row,
+                                 index=False, header=False)
+                    
+                    # Force garbage collection
+                    if len(chunk) > 1000:
+                        gc.collect()
+            else:
+                # Write entire dataframe
+                df.to_excel(writer, sheet_name=safe_sheet_name, index=False)
+        
+        writer.save()
+    
+    def _clean_dataframe(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Clean and optimize dataframe"""
+        
+        if df.empty:
+            return df
+        
+        # Remove completely empty rows and columns
+        df = df.replace(r'^\s*$', pd.NA, regex=True)
+        df = df.dropna(how='all').dropna(axis=1, how='all')
+        
+        # Reset index
+        df = df.reset_index(drop=True)
+        
+        # Check if first row should be headers
+        if len(df) > 1:
+            first_row = df.iloc[0]
+            # Heuristic: if first row has many unique values and isn't too long
+            unique_count = first_row.astype(str).apply(lambda x: x.strip()).nunique()
+            if unique_count > len(df.columns) / 3 and first_row.astype(str).str.len().max() < 100:
+                df.columns = [str(col).strip() for col in first_row]
+                df = df.iloc[1:].reset_index(drop=True)
+        
+        # Strip whitespace from all string columns
+        for col in df.columns:
+            if df[col].dtype == 'object':
+                df[col] = df[col].astype(str).str.strip()
+        
+        return df
+    
+    def _optimize_dataframe_memory(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Optimize dataframe memory usage"""
+        
+        # Convert object columns to categorical if they have few unique values
+        for col in df.columns:
+            if df[col].dtype == 'object':
+                unique_ratio = df[col].nunique() / len(df)
+                if unique_ratio < 0.5:  # If less than 50% unique values
+                    df[col] = df[col].astype('category')
+        
+        # Downcast numeric columns
+        for col in df.select_dtypes(include=[np.number]).columns:
+            df[col] = pd.to_numeric(df[col], errors='coerce')
+            
+            # Downcast integers
+            if df[col].dtype in ['int64', 'int32']:
+                df[col] = pd.to_numeric(df[col], downcast='integer')
+            
+            # Downcast floats
+            elif df[col].dtype in ['float64', 'float32']:
+                df[col] = pd.to_numeric(df[col], downcast='float')
+        
+        return df
+    
+    def _text_to_dataframe(self, text: str) -> pd.DataFrame:
+        """Convert text to dataframe"""
+        
+        lines = text.strip().split('\n')
+        rows = []
+        
+        for line in lines:
+            if line.strip():
+                # Split by common delimiters
+                for delimiter in ['\t', '|', ',', ';', '  ']:
+                    parts = [p.strip() for p in line.split(delimiter) if p.strip()]
+                    if len(parts) > 1:
+                        rows.append(parts)
+                        break
+                else:
+                    # No delimiter found, treat as single column
+                    rows.append([line.strip()])
+        
+        if rows:
+            # Create dataframe
+            max_cols = max(len(row) for row in rows)
+            for i in range(len(rows)):
+                rows[i].extend([''] * (max_cols - len(rows[i])))
+            
+            return pd.DataFrame(rows)
+        
+        return pd.DataFrame()
+    
+    def _get_pdf_page_count(self, pdf_path: str) -> int:
+        """Get number of pages in PDF"""
+        try:
+            if PDFPLUMBER_AVAILABLE:
+                with pdfplumber.open(pdf_path) as pdf:
+                    return len(pdf.pages)
+            else:
+                from PyPDF2 import PdfReader
+                reader = PdfReader(pdf_path)
+                return len(reader.pages)
+        except:
+            return 0
+    
+    def _detect_best_method(self, pdf_path: str) -> str:
+        """Auto-detect best extraction method based on PDF characteristics"""
+        
+        try:
+            # Quick analysis of first few pages
+            with pdfplumber.open(pdf_path) as pdf:
+                sample_pages = min(3, len(pdf.pages))
+                has_tables = False
+                
+                for i in range(sample_pages):
+                    page = pdf.pages[i]
+                    tables = page.extract_tables()
+                    if tables and any(len(t) > 1 for t in tables):
+                        has_tables = True
+                        break
+            
+            if has_tables and CAMELOT_AVAILABLE:
+                return 'camelot'
+            elif PDFPLUMBER_AVAILABLE:
+                return 'pdfplumber'
+            elif TABULA_AVAILABLE:
+                return 'tabula'
+            else:
+                return 'hybrid'
+                
+        except:
+            return 'pdfplumber' if PDFPLUMBER_AVAILABLE else 'tabula'
+    
+    def _fallback_conversion(self, pdf_path: str, excel_path: str,
+                            max_rows: Optional[int], max_columns: Optional[int]) -> str:
+        """Fallback conversion method when primary methods fail"""
+        
+        print("🔄 Using fallback OCR-based extraction...")
+        
+        try:
+            # Try OCR as last resort
+            try:
+                import pytesseract
+                from PIL import Image
+                from pdf2image import convert_from_path
+                
+                print("📷 Converting PDF to images for OCR...")
+                
+                # Convert PDF to images
+                images = convert_from_path(pdf_path, dpi=200)
+                
+                all_text = []
+                for i, image in enumerate(images[:10]):  # Limit to first 10 pages
+                    print(f"🔍 OCR processing page {i+1}/{len(images)}")
+                    text = pytesseract.image_to_string(image)
+                    all_text.append(text)
+                
+                # Combine all text
+                combined_text = '\n'.join(all_text)
+                
+                # Convert to dataframe
+                df = self._text_to_dataframe(combined_text)
+                
+                if not df.empty:
+                    # Apply limits
+                    if max_rows and len(df) > max_rows:
+                        df = df.head(max_rows)
+                    if max_columns and len(df.columns) > max_columns:
+                        df = df.iloc[:, :max_columns]
+                    
+                    # Save to Excel
+                    df.to_excel(excel_path, index=False, sheet_name='OCR_Extracted')
+                    
+                    print(f"✅ OCR extraction completed: {excel_path}")
+                    return excel_path
+                    
+            except ImportError:
+                print("OCR libraries not available")
+            
+            # Ultimate fallback: extract raw text
+            print("📝 Extracting raw text...")
+            
+            if PDFPLUMBER_AVAILABLE:
+                with pdfplumber.open(pdf_path) as pdf:
+                    all_text = []
+                    for page in pdf.pages[:20]:  # Limit to first 20 pages
+                        text = page.extract_text()
+                        if text:
+                            all_text.append(text)
+                
+                combined_text = '\n'.join(all_text)
+                lines = combined_text.split('\n')
+                
+                # Create simple dataframe
+                data = {'Text': lines}
+                if max_rows:
+                    data['Text'] = data['Text'][:max_rows]
+                
+                df = pd.DataFrame(data)
+                
+                if max_columns and len(df.columns) > max_columns:
+                    df = df.iloc[:, :max_columns]
+                
+                df.to_excel(excel_path, index=False, sheet_name='Text_Extracted')
+                
+                print(f"✅ Text extraction completed: {excel_path}")
+                return excel_path
+                
+        except Exception as e:
+            print(f"❌ Fallback conversion failed: {e}")
+            raise
+    
+    def get_conversion_report(self) -> Dict:
+        """Get detailed conversion report"""
+        return {
+            'total_rows': self.metrics['total_rows'],
+            'processing_time_seconds': self.metrics['processing_time'],
+            'tables_found': self.metrics['tables_found'],
+            'rows_per_second': self.metrics['total_rows'] / max(self.metrics['processing_time'], 0.001),
+            'status': 'success' if self.metrics['total_rows'] > 0 else 'partial'
+        }
+
+# ============================================================================
+# SIMPLIFIED USER INTERFACE
+# ============================================================================
+
+def run_batch_conversion():
+    """Convert multiple PDF files at once"""
+    converter = HighVolumePDFtoExcelConverter(max_workers=8)
+    
+    print("=" * 60)
+    print("HIGH-VOLUME PDF TO EXCEL CONVERTER")
+    print("=" * 60)
+    print("This converter is optimized for large PDFs (1000+ rows)")
+    print()
+    
+    # Get input
+    pdf_folder = input("Enter folder containing PDF files (or single file path): ").strip()
+    
+    if os.path.isdir(pdf_folder):
+        # Process all PDFs in folder
+        pdf_files = [f for f in os.listdir(pdf_folder) if f.lower().endswith('.pdf')]
+        print(f"Found {len(pdf_files)} PDF files")
+        
+        max_rows = input("Max rows per sheet (Enter for unlimited): ").strip()
+        max_rows = int(max_rows) if max_rows.isdigit() else None
+        
+        max_cols = input("Max columns per sheet (Enter for unlimited): ").strip()
+        max_cols = int(max_cols) if max_cols.isdigit() else None
+        
+        for pdf_file in pdf_files:
+            pdf_path = os.path.join(pdf_folder, pdf_file)
+            print(f"\n📂 Processing: {pdf_file}")
+            
+            try:
+                result = converter.convert_large_pdf_to_excel(
+                    pdf_path,
+                    max_rows=max_rows,
+                    max_columns=max_cols,
+                    extraction_method='auto',
+                    optimize_memory=True,
+                    split_by_pages=True  # Auto-split large files
+                )
+                print(f"✅ Saved to: {result}")
+            except Exception as e:
+                print(f"❌ Failed: {e}")
+    
+    else:
+        # Process single file
+        pdf_path = pdf_folder
+        
+        if not os.path.exists(pdf_path):
+            print("File not found!")
+            return
+        
+        # Get configuration
+        max_rows = input("Max rows per sheet (Enter for unlimited): ").strip()
+        max_rows = int(max_rows) if max_rows.isdigit() else None
+        
+        max_cols = input("Max columns per sheet (Enter for unlimited): ").strip()
+        max_cols = int(max_cols) if max_cols.isdigit() else None
+        
+        method = input("Extraction method (auto/camelot/pdfplumber/tabula/hybrid) [auto]: ").strip().lower()
+        if method not in ['auto', 'camelot', 'pdfplumber', 'tabula', 'hybrid']:
+            method = 'auto'
+        
+        optimize = input("Optimize memory usage? (y/n) [y]: ").strip().lower()
+        optimize = optimize != 'n'
+        
+        split = input("Auto-split large PDFs? (y/n) [y]: ").strip().lower()
+        split = split != 'n'
+        
+        print(f"\n{'='*60}")
+        print("Starting conversion...")
+        print(f"File: {pdf_path}")
+        print(f"Max rows: {max_rows or 'Unlimited'}")
+        print(f"Max columns: {max_cols or 'Unlimited'}")
+        print(f"Method: {method}")
+        print(f"Memory optimization: {'Yes' if optimize else 'No'}")
+        print(f"Auto-split: {'Yes' if split else 'No'}")
+        print(f"{'='*60}\n")
+        
+        try:
+            result = converter.convert_large_pdf_to_excel(
+                pdf_path,
+                max_rows=max_rows,
+                max_columns=max_cols,
+                extraction_method=method,
+                optimize_memory=optimize,
+                split_by_pages=split
+            )
+            
+            print(f"\n{'='*60}")
+            print("✅ CONVERSION COMPLETE!")
+            print(f"{'='*60}")
+            
+            # Show report
+            report = converter.get_conversion_report()
+            for key, value in report.items():
+                print(f"{key.replace('_', ' ').title()}: {value}")
+            
+            print(f"\nOutput file: {result}")
+            
+            # Ask to open file
+            open_file = input("\nOpen output file? (y/n): ").strip().lower()
+            if open_file == 'y':
+                import subprocess
+                try:
+                    if os.name == 'nt':  # Windows
+                        os.startfile(result)
+                    elif os.name == 'posix':  # macOS, Linux
+                        subprocess.call(['open', result] if sys.platform == 'darwin' else ['xdg-open', result])
+                except:
+                    print("Could not open file automatically")
+            
+        except Exception as e:
+            print(f"\n❌ CONVERSION FAILED: {e}")
+            import traceback
+            traceback.print_exc()
+
+# ============================================================================
+# QUICK START FUNCTION
+# ============================================================================
+
+def quick_convert(pdf_path: str, output_path: Optional[str] = None, 
+                 max_rows: Optional[int] = None, max_columns: Optional[int] = None):
+    """
+    Quick conversion function for simple use cases
+    
+    Example:
+        quick_convert("large_report.pdf", max_rows=5000, max_columns=20)
+    """
+    converter = HighVolumePDFtoExcelConverter()
+    return converter.convert_large_pdf_to_excel(
+        pdf_path,
+        excel_path=output_path,
+        max_rows=max_rows,
+        max_columns=max_columns,
+        extraction_method='auto',
+        optimize_memory=True,
+        split_by_pages=True
+    )
+
+# ============================================================================
+# INSTALLATION SCRIPT
+# ============================================================================
+
+def install_dependencies():
+    """Install all required dependencies"""
+    
+    requirements = [
+        "pandas>=1.5.0",
+        "openpyxl>=3.0.0",
+        "pdfplumber>=0.8.0",
+        "PyPDF2>=3.0.0",
+        "camelot-py[cv]>=0.11.0",
+        "tabula-py>=2.6.0",
+        "numpy>=1.21.0",
+        "xlrd>=2.0.0",
+        "pdf2image>=1.16.0",
+        "pytesseract>=0.3.10",
+        "pillow>=9.0.0"
+    ]
+    
+    print("Installing required packages...")
+    print("This may take a few minutes.")
+    
+    import subprocess
+    import sys
+    
+    for package in requirements:
+        print(f"Installing {package}...")
+        subprocess.check_call([sys.executable, "-m", "pip", "install", package.split('[')[0]])
+    
+    print("\n✅ All dependencies installed successfully!")
+    print("\nNote: For OCR functionality, you also need to install Tesseract:")
+    print("  • Windows: Download from https://github.com/UB-Mannheim/tesseract/wiki")
+    print("  • macOS: brew install tesseract")
+    print("  • Linux: sudo apt-get install tesseract-ocr")
+
+# ============================================================================
+# MAIN EXECUTION
+# ============================================================================
+
+if __name__ == "__main__":
+    print("=" * 70)
+    print("HIGH-PERFORMANCE PDF TO EXCEL CONVERTER")
+    print("Optimized for large files (1000+ rows)")
+    print("=" * 70)
+    print()
+    
+    print("Options:")
+    print("1. Install dependencies")
+    print("2. Convert single PDF file")
+    print("3. Convert all PDFs in a folder")
+    print("4. Quick convert (command line arguments)")
+    print()
+    
+    choice = input("Select option (1-4): ").strip()
+    
+    if choice == '1':
+        install_dependencies()
+    elif choice in ['2', '3']:
+        run_batch_conversion()
+    elif choice == '4':
+        import sys
+        if len(sys.argv) > 1:
+            pdf_path = sys.argv[1]
+            output_path = sys.argv[2] if len(sys.argv) > 2 else None
+            max_rows = int(sys.argv[3]) if len(sys.argv) > 3 and sys.argv[3].isdigit() else None
+            max_cols = int(sys.argv[4]) if len(sys.argv) > 4 and sys.argv[4].isdigit() else None
+            
+            print(f"Quick converting: {pdf_path}")
+            result = quick_convert(pdf_path, output_path, max_rows, max_cols)
+            print(f"Output: {result}")
+        else:
+            print("Usage: python script.py <pdf_path> [output_path] [max_rows] [max_columns]")
+    else:
+        print("Starting interactive mode...")
+        run_batch_conversion()
